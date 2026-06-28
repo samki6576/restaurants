@@ -1,32 +1,81 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { restaurants } from '@/lib/mockData'
-import { Restaurant } from '@/lib/types'
 import { Search, MapPin, Star } from 'lucide-react'
+
+// Types for our data
+interface Restaurant {
+  id: string
+  name: string
+  cuisine: string
+  location: string
+  rating: number
+}
 
 export default function HomePage() {
   const [searchQuery, setSearchQuery] = useState('')
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const filteredRestaurants = useMemo(() => {
-    if (!searchQuery.trim()) {
-      return restaurants
+  // Fetch all restaurants on load
+  useEffect(() => {
+    fetchRestaurants()
+  }, [])
+
+  const fetchRestaurants = async (location?: string) => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const url = location ? `/api/search?location=${encodeURIComponent(location)}` : '/api/search?location='
+      const res = await fetch(url)
+      const data = await res.json()
+      
+      if (res.ok) {
+        setRestaurants(data)
+        if (data.length === 0 && location) {
+          setError('No restaurants found in that location')
+        }
+      } else {
+        setError(data.error || 'Failed to load restaurants')
+      }
+    } catch (err) {
+      setError('Network error. Please try again.')
+      console.error(err)
+    } finally {
+      setIsLoading(false)
     }
-    return restaurants.filter(
-      (r) =>
-        r.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        r.cuisine.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        r.name.toLowerCase().includes(searchQuery.toLowerCase())
-    )
-  }, [searchQuery])
+  }
 
   const handleSearch = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      setIsLoading(true)
-      setTimeout(() => setIsLoading(false), 400)
+    if (e.key === 'Enter' && searchQuery.trim()) {
+      fetchRestaurants(searchQuery)
     }
+  }
+
+  const handleSearchClick = () => {
+    if (searchQuery.trim()) {
+      fetchRestaurants(searchQuery)
+    }
+  }
+
+  // Filter restaurants (optional - API already filters)
+  const filteredRestaurants = restaurants
+
+  // Get cuisine emoji
+  const getEmoji = (cuisine: string) => {
+    const map: { [key: string]: string } = {
+      'Italian': '🍝',
+      'Japanese': '🍣',
+      'Mexican': '🌮',
+      'American': '🍔',
+      'Indian': '🍛',
+      'French': '🥐',
+      'Chinese': '🥢',
+      default: '🍽️'
+    }
+    return map[cuisine] || map.default
   }
 
   return (
@@ -68,16 +117,21 @@ export default function HomePage() {
               />
             </div>
             <button
-              onClick={() => {
-                setIsLoading(true)
-                setTimeout(() => setIsLoading(false), 400)
-              }}
-              className="bg-primary text-white px-6 py-3 rounded-lg font-medium hover:bg-primary-light transition-all hover:scale-105 active:scale-95 flex items-center gap-2 whitespace-nowrap"
+              onClick={handleSearchClick}
+              disabled={isLoading}
+              className="bg-primary text-white px-6 py-3 rounded-lg font-medium hover:bg-primary-light transition-all hover:scale-105 active:scale-95 flex items-center gap-2 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Search className="w-4 h-4" />
-              <span className="hidden sm:inline">Search</span>
+              <span className="hidden sm:inline">{isLoading ? 'Searching...' : 'Search'}</span>
             </button>
           </div>
+
+          {/* Error Message */}
+          {error && (
+            <div className="mt-3 text-sm text-red-500 bg-red-50 border border-red-200 rounded-lg px-4 py-2">
+              {error}
+            </div>
+          )}
         </div>
       </div>
 
@@ -109,6 +163,7 @@ export default function HomePage() {
               <RestaurantCard
                 key={restaurant.id}
                 restaurant={restaurant}
+                emoji={getEmoji(restaurant.cuisine)}
                 index={index}
               />
             ))}
@@ -121,9 +176,11 @@ export default function HomePage() {
 
 function RestaurantCard({
   restaurant,
+  emoji,
   index,
 }: {
   restaurant: Restaurant
+  emoji: string
   index: number
 }) {
   return (
@@ -134,7 +191,7 @@ function RestaurantCard({
       >
         {/* Header with gradient and emoji */}
         <div className="bg-gradient-to-br from-primary/10 to-accent/10 p-6 text-center border-b border-border">
-          <div className="text-5xl mb-2">{restaurant.emoji}</div>
+          <div className="text-5xl mb-2">{emoji}</div>
           <h2 className="text-xl font-bold text-text-primary group-hover:text-primary transition-colors">
             {restaurant.name}
           </h2>

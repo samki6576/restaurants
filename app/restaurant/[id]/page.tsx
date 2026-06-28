@@ -1,10 +1,25 @@
 'use client'
 
-import { useState, use } from 'react'
+import { useState, useEffect, use } from 'react'
 import { useRouter } from 'next/navigation'
-import { restaurants, getTimeSlots } from '@/lib/mockData'
-import { TimeSlot } from '@/lib/types'
 import { ArrowLeft, Clock, Check } from 'lucide-react'
+
+// Types for our data
+interface Restaurant {
+  id: string
+  name: string
+  cuisine: string
+  location: string
+  rating: number
+}
+
+interface TimeSlot {
+  id: string
+  slot_time: string
+  capacity: number
+  booked_count: number
+  name?: string
+}
 
 export default function RestaurantDetailPage({
   params,
@@ -13,8 +28,12 @@ export default function RestaurantDetailPage({
 }) {
   const { id } = use(params)
   const router = useRouter()
-  const restaurant = restaurants.find((r) => r.id === id)
-  const timeSlots = getTimeSlots(id)
+  
+  // State for real data
+  const [restaurant, setRestaurant] = useState<Restaurant | null>(null)
+  const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null)
   const [showModal, setShowModal] = useState(false)
@@ -26,11 +45,110 @@ export default function RestaurantDetailPage({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [bookingSuccess, setBookingSuccess] = useState(false)
 
-  if (!restaurant) {
+  // Fetch restaurant and slots data
+  useEffect(() => {
+    async function fetchData() {
+      setLoading(true)
+      setError(null)
+      try {
+        // 1. Fetch restaurant details from search API (filter by ID)
+        const searchRes = await fetch(`/api/search?location=`)
+        const allRestaurants = await searchRes.json()
+        const found = allRestaurants.find((r: Restaurant) => r.id === id)
+        
+        if (!found) {
+          setError('Restaurant not found')
+          setLoading(false)
+          return
+        }
+        setRestaurant(found)
+
+        // 2. Fetch time slots for this restaurant
+        const slotsRes = await fetch(`/api/slots?restaurantId=${id}`)
+        const slotsData = await slotsRes.json()
+        
+        if (slotsRes.ok) {
+          setTimeSlots(slotsData)
+        } else {
+          setError(slotsData.error || 'Failed to load slots')
+        }
+      } catch (err) {
+        setError('Failed to load restaurant data')
+        console.error(err)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchData()
+  }, [id])
+
+  // Handle booking
+  const handleBooking = async () => {
+    if (!selectedSlot) return
+    
+    setIsSubmitting(true)
+    setError(null)
+    
+    try {
+      const res = await fetch('/api/book', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          slotId: selectedSlot.id,
+          customerName: formData.name,
+          customerPhone: formData.phone,
+          partySize: parseInt(formData.party_size),
+        }),
+      })
+
+      const result = await res.json()
+
+      if (res.ok) {
+        setBookingSuccess(true)
+        // Refresh slots after booking
+        const slotsRes = await fetch(`/api/slots?restaurantId=${id}`)
+        const slotsData = await slotsRes.json()
+        if (slotsRes.ok) {
+          setTimeSlots(slotsData)
+        }
+        setTimeout(() => {
+          setShowModal(false)
+          setBookingSuccess(false)
+          setFormData({ name: '', phone: '', party_size: '2' })
+          setSelectedSlot(null)
+        }, 1500)
+      } else {
+        setError(result.error || 'Booking failed')
+        setTimeout(() => setError(null), 3000)
+      }
+    } catch (err) {
+      setError('Network error. Please try again.')
+      console.error(err)
+      setTimeout(() => setError(null), 3000)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  // Loading state
+  if (loading) {
     return (
       <main className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
-          <p className="text-text-muted text-lg mb-4">Restaurant not found</p>
+          <div className="inline-block w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-text-muted mt-4">Loading restaurant...</p>
+        </div>
+      </main>
+    )
+  }
+
+  // Error state
+  if (error || !restaurant) {
+    return (
+      <main className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-red-500 text-lg mb-4">{error || 'Restaurant not found'}</p>
           <button
             onClick={() => router.push('/')}
             className="bg-primary text-white px-6 py-2 rounded-lg font-medium hover:bg-primary-light transition-all"
@@ -40,21 +158,6 @@ export default function RestaurantDetailPage({
         </div>
       </main>
     )
-  }
-
-  const handleBooking = async () => {
-    setIsSubmitting(true)
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 800))
-    setIsSubmitting(false)
-    setBookingSuccess(true)
-
-    setTimeout(() => {
-      setShowModal(false)
-      setBookingSuccess(false)
-      setFormData({ name: '', phone: '', party_size: '2' })
-      setSelectedSlot(null)
-    }, 1500)
   }
 
   return (
@@ -71,7 +174,14 @@ export default function RestaurantDetailPage({
           </button>
 
           <div className="flex items-start gap-4">
-            <div className="text-5xl">{restaurant.emoji}</div>
+            <div className="text-5xl">
+              {restaurant.cuisine === 'Italian' ? '🍝' :
+               restaurant.cuisine === 'Japanese' ? '🍣' :
+               restaurant.cuisine === 'American' ? '🍔' :
+               restaurant.cuisine === 'Indian' ? '🍛' :
+               restaurant.cuisine === 'French' ? '🥐' :
+               restaurant.cuisine === 'Chinese' ? '🥢' : '🍽️'}
+            </div>
             <div>
               <h1 className="text-4xl font-bold text-text-primary mb-2">
                 {restaurant.name}
@@ -80,6 +190,8 @@ export default function RestaurantDetailPage({
                 <span className="text-lg">{restaurant.cuisine}</span>
                 <span>•</span>
                 <span>{restaurant.location}</span>
+                <span>•</span>
+                <span className="text-yellow-500">⭐ {restaurant.rating}</span>
               </div>
             </div>
           </div>
@@ -88,7 +200,7 @@ export default function RestaurantDetailPage({
           <div className="flex items-center gap-2 mt-6">
             <div className="w-2 h-2 bg-success rounded-full pulse-dot"></div>
             <span className="font-medium text-text-primary">
-              Available tables
+              {timeSlots.length > 0 ? 'Available tables' : 'No tables available'}
             </span>
           </div>
         </div>
@@ -148,7 +260,10 @@ export default function RestaurantDetailPage({
                   <div className="flex items-center gap-2 mb-2">
                     <Clock className="w-4 h-4 text-text-muted" />
                     <span className="font-bold text-text-primary">
-                      {slot.slot_time}
+                      {new Date(slot.slot_time).toLocaleTimeString([], { 
+                        hour: '2-digit', 
+                        minute: '2-digit' 
+                      })}
                     </span>
                   </div>
 
@@ -157,7 +272,7 @@ export default function RestaurantDetailPage({
                   </div>
 
                   <div className="text-sm text-text-muted mb-3">
-                    {availableSeats} of {slot.capacity}
+                    {availableSeats} of {slot.capacity} seats
                   </div>
 
                   {/* Progress Bar */}
@@ -184,12 +299,16 @@ export default function RestaurantDetailPage({
                   <Check className="w-6 h-6 text-success" />
                 </div>
                 <h3 className="text-xl font-bold text-text-primary mb-2">
-                  Booking Confirmed!
+                  Booking Confirmed! 🎉
                 </h3>
                 <p className="text-text-muted">
                   Your table at{' '}
                   <span className="font-semibold">{restaurant.name}</span> is
-                  reserved.
+                  reserved for{' '}
+                  {selectedSlot && new Date(selectedSlot.slot_time).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })}
                 </p>
               </div>
             ) : (
@@ -198,11 +317,10 @@ export default function RestaurantDetailPage({
                   Confirm Booking
                 </h3>
                 <p className="text-text-muted text-sm mb-6">
-                  We&apos;ll hold this table for 15 minutes.
+                  We'll hold this table for 15 minutes.
                 </p>
 
                 <div className="space-y-4 mb-6">
-                  {/* Name */}
                   <div>
                     <label className="block text-sm font-medium text-text-primary mb-2">
                       Full Name
@@ -218,7 +336,6 @@ export default function RestaurantDetailPage({
                     />
                   </div>
 
-                  {/* Phone */}
                   <div>
                     <label className="block text-sm font-medium text-text-primary mb-2">
                       Phone Number
@@ -234,7 +351,6 @@ export default function RestaurantDetailPage({
                     />
                   </div>
 
-                  {/* Party Size */}
                   <div>
                     <label className="block text-sm font-medium text-text-primary mb-2">
                       Party Size
@@ -257,7 +373,6 @@ export default function RestaurantDetailPage({
                     </select>
                   </div>
 
-                  {/* Booking Details */}
                   <div className="bg-primary/5 border border-primary/10 rounded-lg p-4">
                     <div className="text-sm text-text-muted mb-2">
                       <strong className="text-text-primary">Restaurant:</strong>{' '}
@@ -265,7 +380,10 @@ export default function RestaurantDetailPage({
                     </div>
                     <div className="text-sm text-text-muted mb-2">
                       <strong className="text-text-primary">Time:</strong>{' '}
-                      {selectedSlot?.slot_time}
+                      {selectedSlot && new Date(selectedSlot.slot_time).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
                     </div>
                     <div className="text-sm text-text-muted">
                       <strong className="text-text-primary">Duration:</strong>{' '}
@@ -274,7 +392,6 @@ export default function RestaurantDetailPage({
                   </div>
                 </div>
 
-                {/* Buttons */}
                 <div className="flex gap-3">
                   <button
                     onClick={() => setShowModal(false)}
@@ -308,4 +425,3 @@ export default function RestaurantDetailPage({
     </main>
   )
 }
-

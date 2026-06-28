@@ -1,15 +1,19 @@
 import { neon } from '@neondatabase/serverless';
 import { NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
 const sql = neon(process.env.POSTGRES_URL!);
 
 export async function POST(request: Request) {
-  const { slotId, customerName, customerPhone, partySize } = await request.json();
-
   try {
-    // Start a transaction
+    const { slotId, customerName, customerPhone, partySize } = await request.json();
+
+    if (!slotId || !customerName || !customerPhone) {
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    }
+
     const result = await sql.begin(async (tx: any) => {
-      // 1. Check availability with a lock
       const slotCheck = await tx`
         SELECT capacity, booked_count 
         FROM time_slots 
@@ -23,16 +27,14 @@ export async function POST(request: Request) {
       
       const current = slotCheck[0];
       if (current.booked_count >= current.capacity) {
-        throw new Error('This time slot is now fully booked!');
+        throw new Error('This time slot is fully booked!');
       }
 
-      // 2. Insert the booking
       await tx`
         INSERT INTO bookings (slot_id, customer_name, customer_phone, party_size) 
         VALUES (${slotId}, ${customerName}, ${customerPhone}, ${partySize});
       `;
 
-      // 3. Update the slot count
       await tx`
         UPDATE time_slots 
         SET booked_count = booked_count + 1 
@@ -42,9 +44,16 @@ export async function POST(request: Request) {
       return { success: true };
     });
 
-    return NextResponse.json({ success: true, message: 'Table reserved!' });
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Table reserved successfully!' 
+    });
+
   } catch (error: any) {
     console.error('Booking error:', error.message);
-    return NextResponse.json({ error: error.message }, { status: 409 });
+    const status = error.message.includes('fully booked') ? 409 : 500;
+    return NextResponse.json({ 
+      error: error.message || 'Booking failed' 
+    }, { status });
   }
 }

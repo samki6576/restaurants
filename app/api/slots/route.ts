@@ -1,6 +1,8 @@
 import { neon } from '@neondatabase/serverless';
 import { NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
 const sql = neon(process.env.POSTGRES_URL!);
 
 export async function GET(request: Request) {
@@ -18,11 +20,12 @@ export async function GET(request: Request) {
       JOIN restaurants r ON r.id = ts.restaurant_id
       WHERE ts.restaurant_id = ${restaurantId}
       AND ts.slot_time > NOW()
-      AND ts.booked_count < ts.capacity;
+      AND ts.booked_count < ts.capacity
+      ORDER BY ts.slot_time ASC;
     `;
     return NextResponse.json(rows);
   } catch (error: any) {
     console.error('Slots error:', error.message);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch slots' }, { status: 500 });
   }
 }

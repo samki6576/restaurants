@@ -1,12 +1,20 @@
 import { neon } from '@neondatabase/serverless';
 import { NextResponse } from 'next/server';
 
-// 👇 THIS IS THE MAGIC FIX - Prevents build-time evaluation
 export const dynamic = 'force-dynamic';
 
-const sql = neon(process.env.POSTGRES_URL!);
-
 export async function GET(request: Request) {
+  // ✅ Check if the environment variable exists
+  if (!process.env.POSTGRES_URL) {
+    console.error('❌ POSTGRES_URL is not defined in environment variables');
+    return NextResponse.json(
+      { error: 'Database connection string is missing. Please set POSTGRES_URL in Vercel environment variables.' },
+      { status: 500 }
+    );
+  }
+
+  const sql = neon(process.env.POSTGRES_URL!);
+  
   const { searchParams } = new URL(request.url);
   const location = searchParams.get('location') || '';
 
